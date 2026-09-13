@@ -1,6 +1,6 @@
 # Sentinel
 
-Production attribution and contract tightening for [Pact](https://github.com/jmcentire/pact)-generated code.
+Production attribution and contract tightening for [Pact](https://github.com/wandercom/pact)-generated code.
 
 Sentinel watches production logs, attributes errors to specific components via embedded PACT keys, spawns LLM-driven fixer agents, and pushes tightened contracts back to Pact — closing the feedback loop between production and specification.
 
@@ -200,7 +200,7 @@ Rules:
 
 Pact embeds these keys during the Implement phase. Sentinel extracts them at error time. The `sentinel triage` command uses PACT key extraction as its first strategy; if no key is found, it falls back to LLM-based triage against the component manifest.
 
-Canonical specification: [PACT_KEY_STANDARD.md](https://github.com/jmcentire/pact/blob/main/PACT_KEY_STANDARD.md) in the Pact repository.
+Canonical specification: [PACT_KEY_STANDARD.md](https://github.com/wandercom/pact/blob/main/PACT_KEY_STANDARD.md) in the Pact repository.
 
 ## License
 

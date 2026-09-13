@@ -8,7 +8,8 @@ error cases, and invariants. All dependencies are mocked.
 import pytest
 import re
 from unittest.mock import Mock, MagicMock, patch
-from src.sentinel.attribution import *
+from sentinel.attribution import *
+from sentinel.schemas import ManifestEntry
 
 
 class TestAttributionEngineInit:
@@ -17,7 +18,7 @@ class TestAttributionEngineInit:
     def test_init_happy_path_valid_pattern(self):
         """Initialize AttributionEngine with valid manifest and key pattern with 2+ capture groups"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         valid_pattern = r"(\w+):(\w+)"  # 2 capture groups
         
         # Act
@@ -32,7 +33,7 @@ class TestAttributionEngineInit:
     def test_init_fallback_to_default_pattern(self):
         """Initialize with pattern having fewer than 2 capture groups, should fallback to _DEFAULT_PATTERN"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         invalid_pattern = r"(\w+)"  # Only 1 capture group
         
         # Act
@@ -46,7 +47,7 @@ class TestAttributionEngineInit:
     def test_init_invalid_regex_pattern(self):
         """Initialize with invalid regex string should raise InvalidRegexPattern"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         invalid_regex = r"([unclosed"
         
         # Act & Assert
@@ -58,7 +59,7 @@ class TestAttributionEngineInit:
     def test_init_pattern_with_exactly_two_groups(self):
         """Initialize with pattern having exactly 2 capture groups"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern_two_groups = r"([A-Z]+):([a-z]+)"  # Exactly 2 groups
         
         # Act
@@ -72,7 +73,7 @@ class TestAttributionEngineInit:
     def test_invariant_pattern_always_has_two_groups(self):
         """Invariant: _pattern always has at least 2 capture groups after initialization"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         patterns = [
             r"(\w+):(\w+)",      # Valid 2 groups
             r"(\w+)",            # Invalid 1 group - should fallback
@@ -96,7 +97,7 @@ class TestAttributionEngineExtractKey:
     def test_extract_key_happy_path(self):
         """Extract PACT key from log line with matching pattern"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = "Error in PACT:my_component:my_method occurred"
@@ -116,7 +117,7 @@ class TestAttributionEngineExtractKey:
     def test_extract_key_no_match(self):
         """Extract PACT key from log line with no matching pattern returns None"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = "Generic error message without PACT key"
@@ -130,7 +131,7 @@ class TestAttributionEngineExtractKey:
     def test_extract_key_empty_line(self):
         """Extract PACT key from empty string returns None"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = ""
@@ -144,7 +145,7 @@ class TestAttributionEngineExtractKey:
     def test_extract_key_method_name_empty_when_fewer_groups(self):
         """Extract key with pattern having fewer than 2 groups or lastindex < 2 sets method_name to empty string"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         # This pattern has 1 group but will fallback to DEFAULT_PATTERN in init
         # So we need to manually test the postcondition logic
         pattern = r"(\w+):(\w+)"
@@ -166,7 +167,7 @@ class TestAttributionEngineExtractKey:
     def test_extract_key_unicode_line(self):
         """Extract PACT key from log line with unicode characters"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = "Error 错误 in PACT:component_1:method_2 occurred 发生"
@@ -186,9 +187,9 @@ class TestAttributionEngineAttribute:
     def test_attribute_happy_path_registered(self):
         """Attribute log line to registered component, returns Attribution with status 'registered'"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_entry = Mock()
-        mock_manifest.get_component.return_value = mock_entry
+        mock_manifest = Mock(spec=['lookup'])
+        mock_entry = ManifestEntry(component_id="registered")
+        mock_manifest.lookup.return_value = mock_entry
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -209,8 +210,8 @@ class TestAttributionEngineAttribute:
     def test_attribute_unregistered(self):
         """Attribute log line with PACT key not in manifest returns status 'unregistered'"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_manifest.get_component.return_value = None  # Not found
+        mock_manifest = Mock(spec=['lookup'])
+        mock_manifest.lookup.return_value = None  # Not found
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -228,7 +229,7 @@ class TestAttributionEngineAttribute:
     def test_attribute_unattributed(self):
         """Attribute log line without PACT key returns status 'unattributed'"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = "Generic error without PACT key"
@@ -246,15 +247,15 @@ class TestAttributionEngineAttribute:
     def test_attribute_canonical_lookup(self):
         """Attribute uses canonical lookup (first segment is component_id)"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_entry = Mock()
+        mock_manifest = Mock(spec=['lookup'])
+        mock_entry = ManifestEntry(component_id="registered")
         
-        def get_component_side_effect(component_id):
+        def lookup_side_effect(component_id):
             if component_id == "canonical_comp":
                 return mock_entry
             return None
         
-        mock_manifest.get_component.side_effect = get_component_side_effect
+        mock_manifest.lookup.side_effect = lookup_side_effect
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -267,16 +268,16 @@ class TestAttributionEngineAttribute:
         assert result is not None
         assert result.status == 'registered'
         # Verify canonical lookup was tried
-        mock_manifest.get_component.assert_called()
+        mock_manifest.lookup.assert_called()
     
     def test_attribute_secondary_lookup(self):
         """Attribute uses secondary lookup (second segment is component_id) when canonical fails"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_entry = Mock()
+        mock_manifest = Mock(spec=['lookup'])
+        mock_entry = ManifestEntry(component_id="registered")
         
         call_count = [0]
-        def get_component_side_effect(component_id):
+        def lookup_side_effect(component_id):
             call_count[0] += 1
             # First call (canonical) fails, second call (secondary) succeeds
             if call_count[0] == 1:
@@ -285,7 +286,7 @@ class TestAttributionEngineAttribute:
                 return mock_entry
             return None
         
-        mock_manifest.get_component.side_effect = get_component_side_effect
+        mock_manifest.lookup.side_effect = lookup_side_effect
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -298,12 +299,12 @@ class TestAttributionEngineAttribute:
         assert result is not None
         assert result.status == 'registered'
         # Verify both lookups were attempted
-        assert mock_manifest.get_component.call_count >= 2
+        assert mock_manifest.lookup.call_count >= 2
     
     def test_attribute_empty_line(self):
         """Attribute empty log line returns unattributed"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = ""
@@ -318,8 +319,8 @@ class TestAttributionEngineAttribute:
     def test_invariant_attribution_status_always_valid(self):
         """Invariant: Attribution status is always one of: registered, unregistered, unattributed"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_manifest.get_component.return_value = None
+        mock_manifest = Mock(spec=['lookup'])
+        mock_manifest.lookup.return_value = None
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -344,9 +345,9 @@ class TestAttributionEngineAttributeSignal:
     def test_attribute_signal_happy_path_with_log_key(self):
         """Attribute Signal with log_key field present and attribution succeeds"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_entry = Mock()
-        mock_manifest.get_component.return_value = mock_entry
+        mock_manifest = Mock(spec=['lookup'])
+        mock_entry = ManifestEntry(component_id="registered")
+        mock_manifest.lookup.return_value = mock_entry
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -366,8 +367,8 @@ class TestAttributionEngineAttributeSignal:
     def test_attribute_signal_fallback_to_raw_text(self):
         """Attribute Signal falls back to raw_text when log_key is empty or attribution is unattributed"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_manifest.get_component.return_value = None
+        mock_manifest = Mock(spec=['lookup'])
+        mock_manifest.lookup.return_value = None
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -387,8 +388,8 @@ class TestAttributionEngineAttributeSignal:
     def test_attribute_signal_log_key_unattributed(self):
         """Attribute Signal with log_key that results in unattributed, falls back to raw_text"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_manifest.get_component.return_value = None
+        mock_manifest = Mock(spec=['lookup'])
+        mock_manifest.lookup.return_value = None
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -407,9 +408,9 @@ class TestAttributionEngineAttributeSignal:
     def test_attribute_signal_updates_error_context(self):
         """Attribute Signal updates error_context to signal.raw_text when log_key attribution succeeds"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_entry = Mock()
-        mock_manifest.get_component.return_value = mock_entry
+        mock_manifest = Mock(spec=['lookup'])
+        mock_entry = ManifestEntry(component_id="registered")
+        mock_manifest.lookup.return_value = mock_entry
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -429,15 +430,15 @@ class TestAttributionEngineAttributeSignal:
     def test_invariant_signal_attribution_status_always_valid(self):
         """Invariant: Signal attribution status is always one of: registered, unregistered, unattributed"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         
-        def varying_get_component(component_id):
+        def varying_lookup(component_id):
             # Vary returns to test different paths
             if component_id == "registered":
-                return Mock()
+                return ManifestEntry(component_id=component_id)
             return None
         
-        mock_manifest.get_component.side_effect = varying_get_component
+        mock_manifest.lookup.side_effect = varying_lookup
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -461,7 +462,7 @@ class TestAttributionEngineEdgeCases:
     def test_extract_key_with_special_characters(self):
         """Extract PACT key from log line with special characters"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = "Error: PACT:comp_1:method_2 [CRITICAL]!@#$%"
@@ -477,8 +478,8 @@ class TestAttributionEngineEdgeCases:
     def test_attribute_with_very_long_line(self):
         """Attribute log line that is very long"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_manifest.get_component.return_value = Mock()
+        mock_manifest = Mock(spec=['lookup'])
+        mock_manifest.lookup.return_value = ManifestEntry(component_id="registered")
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
@@ -497,7 +498,7 @@ class TestAttributionEngineEdgeCases:
     def test_init_with_pattern_having_more_than_two_groups(self):
         """Initialize with pattern having more than 2 capture groups"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"(\w+):(\w+):(\w+):(\w+)"  # 4 groups
         
         # Act
@@ -510,7 +511,7 @@ class TestAttributionEngineEdgeCases:
     def test_extract_key_multiple_matches_in_line(self):
         """Extract PACT key from log line with multiple potential matches (should use first match)"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
+        mock_manifest = Mock(spec=['lookup'])
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)
         log_line = "PACT:comp1:method1 and PACT:comp2:method2"
@@ -527,9 +528,9 @@ class TestAttributionEngineEdgeCases:
     def test_attribute_signal_with_both_log_key_and_raw_text_having_keys(self):
         """Attribute Signal where both log_key and raw_text contain valid PACT keys"""
         # Arrange
-        mock_manifest = Mock(spec=['get_component'])
-        mock_entry = Mock()
-        mock_manifest.get_component.return_value = mock_entry
+        mock_manifest = Mock(spec=['lookup'])
+        mock_entry = ManifestEntry(component_id="registered")
+        mock_manifest.lookup.return_value = mock_entry
         
         pattern = r"PACT:(\w+):(\w+)"
         engine = AttributionEngine(mock_manifest, pattern)

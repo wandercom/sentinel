@@ -327,8 +327,8 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
     async def _run():
         if not config.sources:
             await sentinel.startup()
-        await api.start(host, port)
         try:
+            await api.start(host, port)
             if config.sources:
                 await asyncio.gather(
                     sentinel.run(),
@@ -349,6 +349,8 @@ def serve(ctx: click.Context, host: str, port: int) -> None:
         asyncio.run(_run())
     except KeyboardInterrupt:
         click.echo("\nSentinel stopped.")
+    except OSError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 if __name__ == "__main__":

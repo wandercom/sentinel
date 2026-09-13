@@ -16,7 +16,9 @@ from aiohttp.test_utils import TestClient, TestServer
 import re
 
 # Import the component under test
-from src.sentinel.api import SentinelAPI
+from sentinel import __version__
+from sentinel.api import SentinelAPI
+from sentinel.manifest import ManifestManager
 
 
 # ============================================================================
@@ -29,14 +31,21 @@ def mock_sentinel():
     sentinel = Mock()
     sentinel.version = "1.0.0"
     sentinel.sources = []
-    sentinel.manifest = {}
+    sentinel.manifest = Mock(spec=ManifestManager)
+    sentinel.manifest.all_entries.return_value = {}
+    sentinel._config = Mock(sources=[])
+    sentinel.incident_mgr.get_active_incidents.return_value = []
+    sentinel.incident_mgr.get_recent_incidents.return_value = []
+    for name in ("_arbiter", "_stigmergy", "_ledger"):
+        getattr(sentinel, name).is_configured.return_value = False
+    sentinel._contracts.pact_configured = False
     sentinel.incidents = []
     sentinel.fixes = []
     sentinel.config = Mock(auto_fix_enabled=True, manual_review_required=False)
     
     # Mock methods
-    sentinel.apply_fix = AsyncMock(return_value=Mock(model_dump=lambda: {"status": "success"}))
-    sentinel.register_component = Mock()
+    sentinel.handle_manual_fix = AsyncMock(return_value=Mock(model_dump=lambda: {"status": "success"}))
+    sentinel.manifest.register = Mock()
     
     return sentinel
 
@@ -209,13 +218,13 @@ async def test_stop_without_runner(api_instance):
 async def test_handle_status_happy_path(client, mock_sentinel):
     """Test _handle_status returns correct status information."""
     # Setup mock sentinel state
-    mock_sentinel.version = "2.0.0"
-    mock_sentinel.sources = [Mock(), Mock()]
-    mock_sentinel.manifest = {"comp1": Mock(), "comp2": Mock(), "comp3": Mock()}
+    mock_sentinel._config.sources = [Mock(), Mock()]
+    mock_sentinel.manifest.all_entries.return_value = {"comp1": Mock(), "comp2": Mock(), "comp3": Mock()}
     mock_sentinel.incidents = [Mock(status="active"), Mock(status="resolved")]
     mock_sentinel.fixes = [Mock(), Mock(), Mock(), Mock()]
-    mock_sentinel.config.auto_fix_enabled = True
-    mock_sentinel.config.manual_review_required = False
+    mock_sentinel.incident_mgr.get_active_incidents.return_value = [Mock()]
+    mock_sentinel._arbiter.is_configured.return_value = True
+    mock_sentinel._contracts.pact_configured = True
     
     resp = await client.get('/status')
     assert resp.status == 200
@@ -224,7 +233,7 @@ async def test_handle_status_happy_path(client, mock_sentinel):
     
     # Verify all required fields
     assert 'version' in data
-    assert data['version'] == "2.0.0"
+    assert data['version'] == __version__
     
     assert 'started_at' in data
     assert isinstance(data['started_at'], str)
@@ -240,9 +249,12 @@ async def test_handle_status_happy_path(client, mock_sentinel):
     assert 'total_fixes' in data
     assert data['total_fixes'] == 4
     
-    # Configuration flags
-    assert 'auto_fix_enabled' in data
-    assert 'manual_review_required' in data
+    # Contract specifies configuration flags; these are the supported integrations.
+    assert data['active_incidents'] == 1
+    assert data['arbiter_configured'] is True
+    assert data['stigmergy_configured'] is False
+    assert data['ledger_configured'] is False
+    assert data['pact_configured'] is True
 
 
 # ============================================================================
@@ -259,7 +271,7 @@ async def test_handle_manifest_happy_path(client, mock_sentinel):
     mock_entry2 = Mock()
     mock_entry2.model_dump.return_value = {"component_id": "comp2", "version": 2}
     
-    mock_sentinel.manifest = {
+    mock_sentinel.manifest.all_entries.return_value = {
         "comp1": mock_entry1,
         "comp2": mock_entry2
     }
@@ -366,7 +378,7 @@ async def test_handle_fix_detail_found(client, mock_sentinel):
     """Test _handle_fix_detail returns fix details for valid fix_id."""
     # Create mock fix
     mock_fix = Mock()
-    mock_fix.fix_id = "valid_fix_id"
+    mock_fix.id = "valid_fix_id"
     mock_fix.model_dump.return_value = {"fix_id": "valid_fix_id", "status": "success"}
     
     mock_sentinel.fixes = [mock_fix]
@@ -398,7 +410,7 @@ async def test_handle_fix_detail_special_chars(client, mock_sentinel):
     # Create mock fix with special characters
     fix_id = "fix-id_123.test"
     mock_fix = Mock()
-    mock_fix.fix_id = fix_id
+    mock_fix.id = fix_id
     mock_fix.model_dump.return_value = {"fix_id": fix_id}
     
     mock_sentinel.fixes = [mock_fix]
@@ -427,7 +439,7 @@ async def test_handle_manual_fix_happy_path(client, mock_sentinel):
     data = await resp.json()
     
     # Verify apply_fix was called
-    assert mock_sentinel.apply_fix.called
+    assert mock_sentinel.handle_manual_fix.called
     
     # Verify response contains result
     assert data is not None
@@ -510,7 +522,7 @@ async def test_handle_register_happy_path(client, mock_sentinel):
     assert 'status' in data or 'component_id' in data
     
     # Verify register_component was called
-    assert mock_sentinel.register_component.called
+    assert mock_sentinel.manifest.register.called
 
 
 @pytest.mark.asyncio
@@ -567,7 +579,7 @@ async def test_handle_metrics_happy_path(client, mock_sentinel):
     fix1.spend_usd = 1.234
     
     fix2 = Mock()
-    fix2.status = "failed"
+    fix2.status = "failure"
     fix2.spend_usd = 2.567
     
     fix3 = Mock()
@@ -575,7 +587,7 @@ async def test_handle_metrics_happy_path(client, mock_sentinel):
     fix3.spend_usd = 3.891
     
     mock_sentinel.fixes = [fix1, fix2, fix3]
-    mock_sentinel.manifest = {"comp1": Mock(), "comp2": Mock()}
+    mock_sentinel.manifest.all_entries.return_value = {"comp1": Mock(), "comp2": Mock()}
     
     resp = await client.get('/metrics')
     assert resp.status == 200
@@ -606,7 +618,7 @@ async def test_handle_metrics_spend_rounding(client, mock_sentinel):
     
     mock_sentinel.fixes = [fix1, fix2]
     mock_sentinel.incidents = []
-    mock_sentinel.manifest = {}
+    mock_sentinel.manifest.all_entries.return_value = {}
     
     resp = await client.get('/metrics')
     assert resp.status == 200
