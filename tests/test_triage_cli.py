@@ -86,8 +86,11 @@ class TestTriageCLIPactKey:
         config_file.write_text(f"state_dir: '{state_dir}'\n")
 
         runner = CliRunner()
-        # Patch LLMClient to raise ImportError
-        with patch("sentinel.cli.asyncio.run", side_effect=RuntimeError("No LLM")):
+        def unavailable_llm(coroutine):
+            coroutine.close()
+            raise RuntimeError("No LLM")
+
+        with patch("sentinel.cli.asyncio.run", side_effect=unavailable_llm):
             # The import of LLMClient should work, but the LLM call will fail
             result = runner.invoke(main, [
                 "--config", str(config_file),

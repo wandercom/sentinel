@@ -8,6 +8,7 @@ from datetime import datetime
 
 from aiohttp import web
 
+from sentinel import __version__
 from sentinel.schemas import ManifestEntry
 
 logger = logging.getLogger(__name__)
@@ -47,7 +48,7 @@ class SentinelAPI:
     async def _handle_status(self, request: web.Request) -> web.Response:
         s = self._sentinel
         data = {
-            "version": "0.1.0",
+            "version": __version__,
             "started_at": self._start_time,
             "sources": len(s._config.sources),
             "components": len(s.manifest.all_entries()),

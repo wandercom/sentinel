@@ -12,7 +12,7 @@ sentinel fix <pact_key> <error_text>       # manually trigger a fix
 sentinel report                            # show recent incidents
 sentinel status                            # show config and integration connectivity
 sentinel serve                             # start HTTP API (port 8484)
-python3 -m pytest tests/ -v               # run tests
+python3 -m pytest --import-mode=importlib tests/ -v  # full artifact sweep; see tests/README.md
 ```
 
 ## Architecture
@@ -79,8 +79,8 @@ Multi-window spending caps: per-incident, hourly, daily, weekly, monthly. Each L
 - Proposed contracts: .sentinel/proposed_contracts/
 - Exponential backoff on log source unavailability (max 60s)
 - No concurrent duplicate fixer spawns
-- Tests: 15 files, pytest-asyncio (auto mode)
+- Tests: 347 full-suite cases verified, including ported generated contract scenarios. See tests/README.md.
 
 ## Kindex
 
-Sentinel captures discoveries, decisions, and incident patterns in [Kindex](~/Code/kindex). Search before adding. Link related concepts.
+Sentinel captures discoveries, decisions, and incident patterns in [Kindex](~/WanderRepos/repos/kindex). Search before adding. Link related concepts.
