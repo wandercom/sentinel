@@ -14,3 +14,5 @@ htmlcov/
 .env
 .venv/
 venv/
+.pact/state.json
+.pact/test-gen/

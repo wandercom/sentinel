@@ -39,7 +39,7 @@ pip install sentinel-monitor[llm]
 sentinel init
 
 # Register components from a Pact project
-sentinel register ~/Code/my-pact-project
+sentinel register path/to/my-pact-project
 
 # Check what's registered
 sentinel manifest show
@@ -96,7 +96,7 @@ llm:
   budget_per_fix: 2.00
 
 pact:
-  project_dir: ~/Code/my-project
+  project_dir: path/to/my-project
 
 arbiter:
   api_endpoint: http://localhost:7700
