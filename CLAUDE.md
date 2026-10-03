@@ -83,4 +83,4 @@ Multi-window spending caps: per-incident, hourly, daily, weekly, monthly. Each L
 
 ## Kindex
 
-Sentinel captures discoveries, decisions, and incident patterns in [Kindex](~/WanderRepos/repos/kindex). Search before adding. Link related concepts.
+Sentinel captures discoveries, decisions, and incident patterns in [Kindex](https://github.com/wandercom/kindex). Search before adding. Link related concepts.
